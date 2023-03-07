@@ -44,6 +44,8 @@ import org.openhab.binding.energidataservice.internal.api.dto.DatahubPricelistRe
 import org.openhab.binding.energidataservice.internal.api.dto.DatahubPricelistRecords;
 import org.openhab.binding.energidataservice.internal.api.dto.ElspotpriceRecord;
 import org.openhab.binding.energidataservice.internal.api.dto.ElspotpriceRecords;
+import org.openhab.binding.energidataservice.internal.api.dto.ForecastpriceRecord;
+import org.openhab.binding.energidataservice.internal.api.dto.ForecastpriceRecords;
 import org.openhab.binding.energidataservice.internal.api.serialization.InstantDeserializer;
 import org.openhab.binding.energidataservice.internal.api.serialization.LocalDateTimeDeserializer;
 import org.openhab.binding.energidataservice.internal.exception.DataServiceException;
@@ -65,6 +67,8 @@ import com.google.gson.JsonSyntaxException;
 public class ApiController {
     private static final String ENDPOINT = "https://api.energidataservice.dk/";
     private static final String DATASET_PATH = "dataset/";
+
+    private static final String FORECAST_ENDPOINT = "https://openapi.carnot.dk/openapi/get_predict";
 
     private static final String DATASET_NAME_SPOT_PRICES = "Elspotprices";
     private static final String DATASET_NAME_DATAHUB_PRICELIST = "DatahubPricelist";
@@ -91,6 +95,52 @@ public class ApiController {
         this.httpClient = httpClient;
         this.timeZoneProvider = timeZoneProvider;
         userAgent = "openHAB " + FrameworkUtil.getBundle(this.getClass()).getVersion().toString();
+    }
+
+    /**
+     * Retrieve forecast prices for the numbers of days given by days ahead
+     *
+     * @param
+     */
+    public ForecastpriceRecord[] getForecastPrices(String PriceArea, String energySource, Integer DaysAhead,
+            String userName, String apiKey) throws InterruptedException, DataServiceException {
+        Request request = httpClient.newRequest(FORECAST_ENDPOINT).param("energysource", energySource) //
+                .param("region", PriceArea) //
+                .param("daysahead", DaysAhead.toString()) //
+                .header(userName, apiKey) //
+                .agent(userAgent) //
+                .method(HttpMethod.GET);
+
+        logger.trace("GET request for {}", request.getURI());
+
+        try {
+            ContentResponse response = request.send();
+
+            int status = response.getStatus();
+            if (!HttpStatus.isSuccess(status)) {
+                throw new DataServiceException("The request failed with HTTP error " + status, status);
+            }
+            String responseContent = response.getContentAsString();
+            if (responseContent.isEmpty()) {
+                throw new DataServiceException("Empty response");
+            }
+            logger.trace("Response content: '{}'", responseContent);
+
+            ForecastpriceRecords records = gson.fromJson(responseContent, ForecastpriceRecords.class);
+            if (records == null) {
+                throw new DataServiceException("Error parsing response");
+            }
+
+            if (records.total() == 0 || records.records().length == 0) {
+                throw new DataServiceException("No records");
+            }
+
+            return Arrays.stream(records.records()).filter(Objects::nonNull).toArray(ForecastpriceRecord[]::new);
+        } catch (JsonSyntaxException e) {
+            throw new DataServiceException("Error parsing response", e);
+        } catch (TimeoutException | ExecutionException e) {
+            throw new DataServiceException(e);
+        }
     }
 
     /**

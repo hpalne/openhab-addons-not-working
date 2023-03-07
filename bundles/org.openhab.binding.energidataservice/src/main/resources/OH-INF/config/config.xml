@@ -57,6 +57,14 @@
 				<option value="5790001089375">Zeanet</option>
 			</options>
 		</parameter>
+		<parameter name="userName" type="text">
+			<label>Carnot API User name</label>
+			<description>API credentials for the Carnot Platform.</description>
+		</parameter>
+		<parameter name="apiKey" type="text">
+			<label>Carnot API-Key</label>
+			<description>API credentials for the Carnot Platform.</description>
+		</parameter>
 		<parameter name="energinetGLN" type="text">
 			<label>Energinet GLN</label>
 			<description>Global Location Number of Energinet.</description>

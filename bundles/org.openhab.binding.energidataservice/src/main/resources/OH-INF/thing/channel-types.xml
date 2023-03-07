@@ -30,4 +30,12 @@
 		<state readOnly="true"></state>
 	</channel-type>
 
+	<channel-type id="forecastPrices" advanced="true">
+		<item-type>String</item-type>
+		<label>Forecast Prices</label>
+		<description>JSON array with hourly forecast prices from the last hour in Future Pricss and onward.</description>
+		<category>Price</category>
+		<state readOnly="true"></state>
+	</channel-type>
+
 </thing:thing-descriptions>

@@ -49,6 +49,8 @@ import org.openhab.binding.energidataservice.internal.api.DateQueryParameter;
 import org.openhab.binding.energidataservice.internal.api.GlobalLocationNumber;
 import org.openhab.binding.energidataservice.internal.api.dto.DatahubPricelistRecord;
 import org.openhab.binding.energidataservice.internal.api.dto.ElspotpriceRecord;
+import org.openhab.binding.energidataservice.internal.api.dto.ForecastpriceRecord;
+import org.openhab.binding.energidataservice.internal.config.CarnotForecastDataServiceConfiguration;
 import org.openhab.binding.energidataservice.internal.config.DatahubPriceConfiguration;
 import org.openhab.binding.energidataservice.internal.config.EnergiDataServiceConfiguration;
 import org.openhab.binding.energidataservice.internal.config.PriceConfiguration;
@@ -91,18 +93,21 @@ public class EnergiDataServiceHandler extends BaseThingHandler {
     private final Gson gson = new Gson();
 
     private EnergiDataServiceConfiguration config;
+    private CarnotForecastDataServiceConfiguration carnotConfig;
     private RetryStrategy retryPolicy = RetryPolicyFactory.initial();
     private Collection<DatahubPricelistRecord> netTariffRecords = new ArrayList<>();
     private Collection<DatahubPricelistRecord> systemTariffRecords = new ArrayList<>();
     private Collection<DatahubPricelistRecord> electricityTaxRecords = new ArrayList<>();
     private Collection<DatahubPricelistRecord> transmissionNetTariffRecords = new ArrayList<>();
     private Map<Instant, BigDecimal> spotPriceMap = new ConcurrentHashMap<>();
+    private Map<Instant, BigDecimal> forecastPriceMap = new ConcurrentHashMap<>();
     private Map<Instant, BigDecimal> netTariffMap = new ConcurrentHashMap<>();
     private Map<Instant, BigDecimal> systemTariffMap = new ConcurrentHashMap<>();
     private Map<Instant, BigDecimal> electricityTaxMap = new ConcurrentHashMap<>();
     private Map<Instant, BigDecimal> transmissionNetTariffMap = new ConcurrentHashMap<>();
     private @Nullable ScheduledFuture<?> refreshFuture;
     private @Nullable ScheduledFuture<?> priceUpdateFuture;
+    private @Nullable ScheduledFuture<?> forecastUpdateFuture;
 
     private record Price(String hourStart, BigDecimal spotPrice, String spotPriceCurrency,
             @Nullable BigDecimal netTariff, @Nullable BigDecimal systemTariff, @Nullable BigDecimal electricityTax,
@@ -118,6 +123,7 @@ public class EnergiDataServiceHandler extends BaseThingHandler {
 
         // Default configuration
         this.config = new EnergiDataServiceConfiguration();
+        this.carnotConfig = new CarnotForecastDataServiceConfiguration();
     }
 
     @Override
@@ -134,6 +140,7 @@ public class EnergiDataServiceHandler extends BaseThingHandler {
     @Override
     public void initialize() {
         config = getConfigAs(EnergiDataServiceConfiguration.class);
+        carnotConfig = getConfigAs(CarnotForecastDataServiceConfiguration.class);
 
         if (config.priceArea.isBlank()) {
             updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.CONFIGURATION_ERROR,
@@ -171,7 +178,13 @@ public class EnergiDataServiceHandler extends BaseThingHandler {
             this.priceUpdateFuture = null;
         }
 
+        ScheduledFuture<?> forecastUpdateFuture = this.forecastUpdateFuture;
+        if (forecastUpdateFuture != null) {
+            forecastUpdateFuture.cancel(true);
+            this.forecastUpdateFuture = null;
+        }
         spotPriceMap.clear();
+        forecastPriceMap.clear();
         netTariffMap.clear();
         systemTariffMap.clear();
         electricityTaxMap.clear();
@@ -330,6 +343,15 @@ public class EnergiDataServiceHandler extends BaseThingHandler {
         }
     }
 
+    private void processForecastPrices(ForecastpriceRecord[] records) {
+        forecastPriceMap.clear();
+        boolean isDKK = config.getCurrency().equals(EnergiDataServiceBindingConstants.CURRENCY_DKK);
+        for (ForecastpriceRecord record : records) {
+            spotPriceMap.put(record.hour(),
+                    (isDKK ? record.forecastPriceDKK() : record.forecastPriceEUR()).divide(BigDecimal.valueOf(1000)));
+        }
+    }
+
     private void updatePrices() {
         removeHistoricPrices();
 
@@ -339,6 +361,7 @@ public class EnergiDataServiceHandler extends BaseThingHandler {
         updateCurrentTariff(CHANNEL_CURRENT_ELECTRICITY_TAX, electricityTaxMap);
         updateCurrentTariff(CHANNEL_CURRENT_TRANSMISSION_NET_TARIFF, transmissionNetTariffMap);
         updateFuturePrices();
+        updateForecastPrices();
 
         reschedulePriceUpdateJob();
     }
@@ -402,6 +425,34 @@ public class EnergiDataServiceHandler extends BaseThingHandler {
             default:
                 logger.debug("No VAT rate for country {}", country);
                 return BigDecimal.ONE;
+        }
+    }
+
+    private void updateForecastPrices() {
+        if (!isLinked(CHANNEL_FORECAST_PRICES)) {
+            return;
+        }
+
+        try {
+            ForecastpriceRecord[] forecastpriceRecords = apiController.getForecastPrices(config.priceArea, "spotprice",
+                    7, carnotConfig.userName, carnotConfig.apiKey);
+            processForecastPrices(forecastpriceRecords);
+
+        } catch (DataServiceException e) {
+            if (e.getHttpStatus() != 0) {
+                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.COMMUNICATION_ERROR,
+                        HttpStatus.getCode(e.getHttpStatus()).getMessage());
+            } else {
+                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.COMMUNICATION_ERROR, e.getMessage());
+            }
+            if (e.getCause() != null) {
+                logger.debug("Error retrieving prices", e);
+            }
+            retryPolicy = RetryPolicyFactory.fromThrowable(e);
+        } catch (InterruptedException e) {
+            logger.debug("Refresh job interrupted");
+            Thread.currentThread().interrupt();
+            return;
         }
     }
 
@@ -574,6 +625,7 @@ public class EnergiDataServiceHandler extends BaseThingHandler {
         Instant timeOfNextRefresh = Instant.now().plusSeconds(secondsUntilNextRefresh);
         this.refreshFuture = scheduler.schedule(this::refreshElectricityPrices, secondsUntilNextRefresh,
                 TimeUnit.SECONDS);
+
         logger.debug("Refresh job rescheduled in {} seconds: {}", secondsUntilNextRefresh, timeOfNextRefresh);
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern(PROPERTY_DATETIME_FORMAT);
         updateProperty(PROPERTY_NEXT_CALL, LocalDateTime.ofInstant(timeOfNextRefresh, timeZoneProvider.getTimeZone())

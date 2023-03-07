@@ -29,6 +29,7 @@
 				<description>Transmission Net Tariff in DKK per kWh for current hour.</description>
 			</channel>
 			<channel id="futurePrices" typeId="futurePrices"/>
+			<channel id="forecastPrices" typeId="forecastPrices"/>
 		</channels>
 	</channel-group-type>
 

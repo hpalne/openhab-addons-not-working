@@ -52,10 +52,12 @@ public class EnergiDataServiceBindingConstants {
             + ChannelUID.CHANNEL_GROUP_SEPARATOR + "currentTransmissionNetTariff";
     public static final String CHANNEL_FUTURE_PRICES = CHANNEL_GROUP_ELECTRICITY + ChannelUID.CHANNEL_GROUP_SEPARATOR
             + "futurePrices";
+    public static final String CHANNEL_FORECAST_PRICES = CHANNEL_GROUP_ELECTRICITY + ChannelUID.CHANNEL_GROUP_SEPARATOR
+            + "forecastPrices";
 
     public static final Set<String> ELECTRICITY_CHANNELS = Set.of(CHANNEL_CURRENT_SPOT_PRICE,
             CHANNEL_CURRENT_NET_TARIFF, CHANNEL_CURRENT_SYSTEM_TARIFF, CHANNEL_CURRENT_ELECTRICITY_TAX,
-            CHANNEL_CURRENT_TRANSMISSION_NET_TARIFF, CHANNEL_FUTURE_PRICES);
+            CHANNEL_CURRENT_TRANSMISSION_NET_TARIFF, CHANNEL_FUTURE_PRICES, CHANNEL_FORECAST_PRICES);
 
     // List of all properties
     public static final String PROPERTY_REMAINING_CALLS = "remainingCalls";
