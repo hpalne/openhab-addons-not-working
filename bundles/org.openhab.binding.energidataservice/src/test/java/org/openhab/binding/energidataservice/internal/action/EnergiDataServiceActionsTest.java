@@ -86,7 +86,7 @@ public class EnergiDataServiceActionsTest {
     }
 
     @BeforeEach
-    private void setUp() {
+    void setUp() {
         final Logger logger = (Logger) LoggerFactory.getLogger(EnergiDataServiceActions.class);
         logger.setLevel(Level.OFF);
 
